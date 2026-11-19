@@ -199,6 +199,7 @@ final class School_POS_Installer {
 		}
 
 		update_option( 'school_pos_schema_version', '1.0.0', false );
+		add_option( 'school_pos_voucher_sequence', '0', '', 'no' );
 		School_POS_Roles::register();
 	}
 }

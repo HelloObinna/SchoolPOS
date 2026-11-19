@@ -91,7 +91,7 @@ final class School_POS_Checkout {
 	}
 
 	private static function normalize_lines( array $lines ) {
-		$result = array();
+		$merged = array();
 		foreach ( $lines as $line ) {
 			$product_id = absint( isset( $line['product_id'] ) ? $line['product_id'] : 0 );
 			$quantity   = absint( isset( $line['quantity'] ) ? $line['quantity'] : 0 );
@@ -99,8 +99,14 @@ final class School_POS_Checkout {
 			if ( ! $product_id || $quantity < 1 || ! in_array( $unit_type, array( 'PACK', 'PIECE' ), true ) ) {
 				return new WP_Error( 'invalid_cart_line', 'Each cart line requires a product, positive quantity, and PACK or PIECE unit type.' );
 			}
-			$result[] = array( 'product_id' => $product_id, 'quantity' => $quantity, 'unit_type' => $unit_type );
+			$key = $product_id . ':' . $unit_type;
+			if ( isset( $merged[ $key ] ) ) {
+				$merged[ $key ]['quantity'] += $quantity;
+			} else {
+				$merged[ $key ] = array( 'product_id' => $product_id, 'quantity' => $quantity, 'unit_type' => $unit_type );
+			}
 		}
+		$result = array_values( $merged );
 		usort(
 			$result,
 			static function ( $left, $right ) {
