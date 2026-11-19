@@ -21,6 +21,8 @@ require_once SCHOOL_POS_DIR . 'includes/class-school-pos-roles.php';
 require_once SCHOOL_POS_DIR . 'includes/class-school-pos-security.php';
 require_once SCHOOL_POS_DIR . 'includes/class-school-pos-rate-limiter.php';
 require_once SCHOOL_POS_DIR . 'includes/class-school-pos-rest.php';
+require_once SCHOOL_POS_DIR . 'includes/class-school-pos-inventory.php';
+require_once SCHOOL_POS_DIR . 'includes/class-school-pos-chain-rest.php';
 require_once SCHOOL_POS_DIR . 'includes/class-school-pos-admin.php';
 
 register_activation_hook( __FILE__, array( 'School_POS_Installer', 'activate' ) );
@@ -32,6 +34,7 @@ add_action(
 		School_POS_Roles::register();
 		School_POS_Security::register();
 		School_POS_REST::register();
+		School_POS_Chain_REST::register();
 		School_POS_Admin::register();
 	}
 );
