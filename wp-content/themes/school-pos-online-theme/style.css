@@ -1,0 +1,30 @@
+/*
+Theme Name: SchoolPOS Online Theme
+Theme URI: https://github.com/HelloObinna/SchoolPOS
+Description: Responsive distraction-free interface for SchoolPOS terminals and oversight.
+Version: 0.1.0
+Author: SchoolPOS
+Text Domain: school-pos-online-theme
+*/
+
+:root{--pos-navy:#12304a;--pos-blue:#1769aa;--pos-bg:#f4f7fa;--pos-border:#d9e2ea;--pos-text:#172b3a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--pos-bg);color:var(--pos-text);font:16px/1.5 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+a{color:var(--pos-blue)}
+.pos-shell{min-height:100vh;display:flex;flex-direction:column}
+.pos-header{background:var(--pos-navy);color:#fff;padding:1rem 5vw}
+.pos-header-inner{max-width:1200px;margin:auto;display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.pos-brand{color:#fff;text-decoration:none;font-weight:700;font-size:1.2rem}
+.pos-nav ul{display:flex;flex-wrap:wrap;gap:1rem;list-style:none;padding:0;margin:0}
+.pos-nav a{color:#fff;text-decoration:none}
+.pos-main{width:min(1200px,90vw);margin:2rem auto;flex:1}
+.pos-card,.pos-form{background:#fff;border:1px solid var(--pos-border);border-radius:8px;padding:1.25rem;box-shadow:0 2px 8px #12304a0d}
+.pos-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:1rem}
+label{display:block;font-weight:600;margin:.75rem 0 .25rem}
+input,select,textarea,button{font:inherit;max-width:100%}
+input,select,textarea{width:100%;border:1px solid #9aabba;border-radius:4px;padding:.65rem}
+button,.button{border:0;border-radius:4px;background:var(--pos-blue);color:#fff;padding:.7rem 1rem;cursor:pointer;text-decoration:none;display:inline-block}
+.pos-footer{background:var(--pos-navy);color:#fff;padding:1rem 5vw;text-align:center}
+@media (max-width:700px){.pos-header-inner{align-items:flex-start;flex-direction:column}.pos-main{width:94vw;margin:1rem auto}.pos-nav ul{gap:.65rem;font-size:.95rem}}
+@page{size:80mm auto;margin:0}
+@media print{body{width:72mm;margin:0;background:#fff}.pos-header,.pos-footer,.no-print{display:none!important}.pos-main{width:72mm;margin:0}.pos-card{border:0;box-shadow:none;padding:0}}
