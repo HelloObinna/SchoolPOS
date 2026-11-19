@@ -43,14 +43,15 @@ final class School_POS_Inventory {
 			return new WP_Error( 'intake_create_failed', 'The stock intake could not be saved.' );
 		}
 
+		$intake_id = (int) $wpdb->insert_id;
 		self::audit(
 			'intake_submitted',
 			'intake',
-			(int) $wpdb->insert_id,
+			$intake_id,
 			$code,
 			array( 'product_id' => (int) $product->product_id, 'quantity_base_units' => $quantity_packs * (int) $product->units_per_pack )
 		);
-		return array( 'intake_id' => (int) $wpdb->insert_id, 'intake_code' => $code );
+		return array( 'intake_id' => $intake_id, 'intake_code' => $code );
 	}
 
 	public static function accept_intake( $intake_id ) {
@@ -155,14 +156,15 @@ final class School_POS_Inventory {
 			$wpdb->query( 'ROLLBACK' );
 			return new WP_Error( 'dispatch_failed', 'The store transfer could not be created.' );
 		}
+		$handover_id = (int) $wpdb->insert_id;
 		$ledger = self::ledger( 'WAREHOUSE', absint( $product_id ), 'STORE_DISPATCH', -$quantity_base_units, $before, $after, $code, 'Stock reserved for storefront handover.' );
 		if ( is_wp_error( $ledger ) ) {
 			$wpdb->query( 'ROLLBACK' );
 			return $ledger;
 		}
 		$wpdb->query( 'COMMIT' );
-		self::audit( 'store_handover_initiated', 'handover', (int) $wpdb->insert_id, $code, array( 'product_id' => absint( $product_id ), 'quantity_base_units' => $quantity_base_units ) );
-		return array( 'handover_id' => (int) $wpdb->insert_id, 'handover_code' => $code, 'warehouse_balance_base_units' => $after );
+		self::audit( 'store_handover_initiated', 'handover', $handover_id, $code, array( 'product_id' => absint( $product_id ), 'quantity_base_units' => $quantity_base_units ) );
+		return array( 'handover_id' => $handover_id, 'handover_code' => $code, 'warehouse_balance_base_units' => $after );
 	}
 
 	public static function accept_store_handover( $handover_id ) {
