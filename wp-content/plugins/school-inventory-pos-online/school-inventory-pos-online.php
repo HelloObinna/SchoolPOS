@@ -23,6 +23,10 @@ require_once SCHOOL_POS_DIR . 'includes/class-school-pos-rate-limiter.php';
 require_once SCHOOL_POS_DIR . 'includes/class-school-pos-rest.php';
 require_once SCHOOL_POS_DIR . 'includes/class-school-pos-inventory.php';
 require_once SCHOOL_POS_DIR . 'includes/class-school-pos-chain-rest.php';
+require_once SCHOOL_POS_DIR . 'includes/class-school-pos-vouchers.php';
+require_once SCHOOL_POS_DIR . 'includes/class-school-pos-checkout.php';
+require_once SCHOOL_POS_DIR . 'includes/class-school-pos-print.php';
+require_once SCHOOL_POS_DIR . 'includes/class-school-pos-voucher-rest.php';
 require_once SCHOOL_POS_DIR . 'includes/class-school-pos-admin.php';
 
 register_activation_hook( __FILE__, array( 'School_POS_Installer', 'activate' ) );
@@ -35,6 +39,8 @@ add_action(
 		School_POS_Security::register();
 		School_POS_REST::register();
 		School_POS_Chain_REST::register();
+		School_POS_Print::register();
+		School_POS_Voucher_REST::register();
 		School_POS_Admin::register();
 	}
 );
