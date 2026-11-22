@@ -1,21 +1,9 @@
-<?php
-defined( 'ABSPATH' ) || exit;
-?><!doctype html>
+<?php defined( 'ABSPATH' ) || exit; ?><!doctype html>
 <html <?php language_attributes(); ?>>
-<head>
-	<meta charset="<?php bloginfo( 'charset' ); ?>">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<?php wp_head(); ?>
-</head>
-<body <?php body_class(); ?>>
-<?php wp_body_open(); ?>
-<div class="pos-shell">
-	<header class="pos-header">
-		<div class="pos-header-inner">
-			<a class="pos-brand" href="<?php echo esc_url( home_url( '/' ) ); ?>"><?php echo esc_html( get_option( 'school_pos_school_name', get_bloginfo( 'name' ) ) ); ?></a>
-			<nav class="pos-nav" aria-label="<?php esc_attr_e( 'Primary navigation', 'school-pos-online-theme' ); ?>">
-				<?php wp_nav_menu( array( 'theme_location' => 'primary', 'container' => false, 'fallback_cb' => false ) ); ?>
-			</nav>
-		</div>
-	</header>
-	<main class="pos-main">
+<head><meta charset="<?php bloginfo( 'charset' ); ?>"><meta name="viewport" content="width=device-width, initial-scale=1"><?php wp_head(); ?></head>
+<body <?php body_class(); ?>><?php wp_body_open(); ?>
+<header class="pos-header"><div class="pos-header-inner">
+	<a class="pos-brand" href="<?php echo esc_url( home_url( '/school-pos/' ) ); ?>"><span class="pos-brand-mark">SP</span><span><?php echo esc_html( get_option( 'school_pos_school_name', get_bloginfo( 'name' ) ) ); ?></span></a>
+	<div class="pos-header-actions"><?php if ( is_user_logged_in() ) : ?><a href="<?php echo esc_url( admin_url( 'profile.php' ) ); ?>"><?php echo esc_html( wp_get_current_user()->display_name ); ?></a><a href="<?php echo esc_url( wp_logout_url( home_url( '/school-pos/' ) ) ); ?>">Sign out</a><?php else : ?><a href="<?php echo esc_url( wp_login_url( home_url( '/school-pos/' ) ) ); ?>">Sign in</a><?php endif; ?></div>
+</div></header>
+<main class="pos-main">
