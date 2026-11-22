@@ -10,6 +10,7 @@ final class School_POS_API {
 		register_rest_route( 'school-pos/v1', '/dashboard', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'dashboard' ), 'permission_callback' => '__return_true' ) );
 		register_rest_route( 'school-pos/v1', '/products', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'products' ), 'permission_callback' => '__return_true' ) );
 		register_rest_route( 'school-pos/v1', '/products', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'create_product' ), 'permission_callback' => array( __CLASS__, 'admin_product' ) ) );
+		register_rest_route( 'school-pos/v1', '/products/(?P<id>\d+)', array( 'methods' => array( 'POST', 'PUT', 'PATCH' ), 'callback' => array( __CLASS__, 'update_product' ), 'permission_callback' => array( __CLASS__, 'admin_product' ) ) );
 		register_rest_route( 'school-pos/v1', '/intakes', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'create_intake' ), 'permission_callback' => array( __CLASS__, 'cap_log_intake' ) ) );
 		register_rest_route( 'school-pos/v1', '/intakes', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'intakes' ), 'permission_callback' => '__return_true' ) );
 		register_rest_route( 'school-pos/v1', '/intakes/(?P<id>\d+)/accept', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'accept_intake' ), 'permission_callback' => array( __CLASS__, 'cap_receive_warehouse' ) ) );
@@ -36,13 +37,40 @@ final class School_POS_API {
 	public static function cap_record_payment( $request ) { return self::signed_in() && current_user_can( 'record_bursar_payment'); }
 	public static function cap_redeem( $request ) { return self::signed_in() && current_user_can( 'remit_bursar_voucher'); }
 	public static function cap_checkout( $request ) { return self::signed_in() && current_user_can( 'operate_pos_checkout') && current_user_can( 'remit_bursar_voucher'); }
-	public static function cap_audit( $request ) { return self::signed_in() && ( current_user_can( 'view_master_audit_ledger' ) || current_user_can( 'oversee_all_transactions' ) ); }
+	public static function cap_audit( $request ) { return self::signed_in() && ( is_super_admin() || current_user_can( 'view_master_audit_ledger' ) || current_user_can( 'oversee_all_transactions' ) ); }
 
 	public static function dashboard( WP_REST_Request $request ) {
 		if ( ! self::signed_in() ) return new WP_Error( 'login_required', 'Please sign in.', array( 'status' => 401 ) );
 		global $wpdb;
 		$p = $wpdb->prefix . 'school_pos_';
 		$role = School_POS_Roles::user_role();
+		$today = gmdate( 'Y-m-d 00:00:00' );
+		$seven = gmdate( 'Y-m-d 00:00:00', strtotime( '-6 days', current_time( 'timestamp', true ) ) );
+		$month = gmdate( 'Y-m-d 00:00:00', strtotime( '-29 days', current_time( 'timestamp', true ) ) );
+		$custom_from = sanitize_text_field( $request->get_param( 'from' ) );
+		$custom_to = sanitize_text_field( $request->get_param( 'to' ) );
+		$sum_sales = static function ( $from, $to = '' ) use ( $wpdb, $p ) {
+			$sql = "SELECT COALESCE(SUM(total_kobo),0) FROM {$p}sales WHERE status='COMPLETED' AND created_at>=%s";
+			$args = array( $from );
+			if ( $to ) {
+				$sql .= ' AND created_at<=%s';
+				$args[] = $to;
+			}
+			if ( $to ) {
+				return (int) $wpdb->get_var( $wpdb->prepare( $sql, $from, $to ) );
+			}
+			return (int) $wpdb->get_var( $wpdb->prepare( $sql, $from ) );
+		};
+		$today_sales = $sum_sales( $today );
+		$seven_sales = $sum_sales( $seven );
+		$month_sales = $sum_sales( $month );
+		$custom_sales = 0;
+		if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $custom_from ) && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $custom_to ) ) {
+			$custom_sales = $sum_sales( $custom_from . ' 00:00:00', $custom_to . ' 23:59:59' );
+		}
+		$warehouse_pieces = (int) $wpdb->get_var( "SELECT COALESCE(SUM(quantity_base_units),0) FROM {$p}stock_balances WHERE location='WAREHOUSE'" );
+		$store_pieces = (int) $wpdb->get_var( "SELECT COALESCE(SUM(quantity_base_units),0) FROM {$p}stock_balances WHERE location='STOREFRONT'" );
+		$stock_rows = $wpdb->get_results( "SELECT p.product_id,p.name,p.bulk_unit_label,p.base_unit_label,p.units_per_pack,COALESCE(w.quantity_base_units,0) AS warehouse_units,COALESCE(s.quantity_base_units,0) AS storefront_units FROM {$p}products p LEFT JOIN {$p}stock_balances w ON w.product_id=p.product_id AND w.location='WAREHOUSE' LEFT JOIN {$p}stock_balances s ON s.product_id=p.product_id AND s.location='STOREFRONT' WHERE p.is_active=1 ORDER BY p.name", ARRAY_A );
 		$data = array(
 			'role' => $role,
 			'counts' => array(
@@ -51,6 +79,17 @@ final class School_POS_API {
 				'discrepancies' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}intakes WHERE status='DISCREPANCY'" ),
 				'issued_vouchers' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}vouchers WHERE status='ISSUED'" ),
 				'sales_today' => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$p}sales WHERE status='COMPLETED' AND created_at >= %s", gmdate( 'Y-m-d 00:00:00' ) ) ),
+			),
+			'sales' => array(
+				'today_kobo' => $today_sales,
+				'seven_days_kobo' => $seven_sales,
+				'thirty_days_kobo' => $month_sales,
+				'custom_kobo' => $custom_sales,
+			),
+			'stock' => array(
+				'warehouse_base_units' => $warehouse_pieces,
+				'storefront_base_units' => $store_pieces,
+				'products' => $stock_rows,
 			),
 		);
 		return rest_ensure_response( $data );
@@ -91,6 +130,37 @@ final class School_POS_API {
 		$wpdb->insert( $wpdb->prefix . 'school_pos_stock_balances', array( 'location' => 'STOREFRONT', 'product_id' => $id, 'quantity_base_units' => 0, 'updated_at' => $now ), array( '%s','%d','%d','%s' ) );
 		School_POS_Security::audit( 'product_created', 'product', $id, $sku, array( 'name' => $name ) );
 		return rest_ensure_response( array( 'product_id' => $id, 'sku' => $sku ) );
+	}
+
+	public static function update_product( WP_REST_Request $request ) {
+		global $wpdb;
+		$id = absint( $request['id'] );
+		$j = $request->get_json_params();
+		$product = $wpdb->get_row( $wpdb->prepare( "SELECT product_id FROM {$wpdb->prefix}school_pos_products WHERE product_id=%d", $id ) );
+		if ( ! $product ) return new WP_Error( 'product_not_found', 'Product not found.', array( 'status' => 404 ) );
+		$fields = array();
+		$formats = array();
+		if ( isset( $j['name'] ) ) { $fields['name'] = sanitize_text_field( $j['name'] ); $formats[] = '%s'; }
+		if ( isset( $j['sku'] ) ) { $fields['sku'] = strtoupper( sanitize_title( $j['sku'] ) ); $formats[] = '%s'; }
+		if ( isset( $j['category'] ) ) { $fields['category'] = sanitize_key( $j['category'] ); $formats[] = '%s'; }
+		if ( isset( $j['units_per_pack'] ) ) { $fields['units_per_pack'] = max( 1, absint( $j['units_per_pack'] ) ); $formats[] = '%d'; }
+		if ( isset( $j['bulk_unit_label'] ) ) { $fields['bulk_unit_label'] = sanitize_text_field( $j['bulk_unit_label'] ); $formats[] = '%s'; }
+		if ( isset( $j['base_unit_label'] ) ) { $fields['base_unit_label'] = sanitize_text_field( $j['base_unit_label'] ); $formats[] = '%s'; }
+		if ( isset( $j['pack_price_naira'] ) ) { $fields['pack_price_kobo'] = (int) round( (float) $j['pack_price_naira'] * 100 ); $formats[] = '%d'; }
+		elseif ( isset( $j['pack_price_kobo'] ) ) { $fields['pack_price_kobo'] = absint( $j['pack_price_kobo'] ); $formats[] = '%d'; }
+		if ( isset( $j['piece_price_naira'] ) ) { $fields['piece_price_kobo'] = (int) round( (float) $j['piece_price_naira'] * 100 ); $formats[] = '%d'; }
+		elseif ( isset( $j['piece_price_kobo'] ) ) { $fields['piece_price_kobo'] = absint( $j['piece_price_kobo'] ); $formats[] = '%d'; }
+		if ( isset( $j['low_stock_threshold'] ) ) { $fields['low_stock_threshold_base_units'] = absint( $j['low_stock_threshold'] ); $formats[] = '%d'; }
+		if ( isset( $j['is_active'] ) ) { $fields['is_active'] = absint( $j['is_active'] ) ? 1 : 0; $formats[] = '%d'; }
+		if ( empty( $fields ) ) return new WP_Error( 'no_product_changes', 'No product changes supplied.', array( 'status' => 422 ) );
+		$fields['updated_by'] = get_current_user_id();
+		$formats[] = '%d';
+		$fields['updated_at'] = current_time( 'mysql', true );
+		$formats[] = '%s';
+		$updated = $wpdb->update( $wpdb->prefix . 'school_pos_products', $fields, array( 'product_id' => $id ), $formats, array( '%d' ) );
+		if ( false === $updated ) return new WP_Error( 'product_update_failed', 'Product could not be updated.', array( 'status' => 409 ) );
+		School_POS_Security::audit( 'product_updated', 'product', $id, (string) $id, $j );
+		return rest_ensure_response( array( 'product_id' => $id, 'updated' => true ) );
 	}
 
 	public static function create_intake( WP_REST_Request $request ) {
@@ -254,8 +324,8 @@ final class School_POS_API {
 		$now = current_time( 'mysql', true );
 		$ok = $wpdb->insert(
 			$wpdb->prefix . 'school_pos_vouchers',
-			array( 'voucher_code'=>$code,'code_digest'=>hash('sha256',$code),'sequence_no'=>$sequence,'student_full_name'=>$name,'admission_number'=>$admission,'class_grade'=>$class,'amount_paid_kobo'=>$amount,'payment_method'=>$method,'teller_ref_no'=>sanitize_text_field(isset($j['teller_ref_no'])?$j['teller_ref_no']:''),'status'=>'ISSUED','issued_by'=>get_current_user_id(),'issued_at'=>$now,'issued_ip'=>School_POS_Security::ip(),'issued_user_agent'=>School_POS_Security::user_agent() ),
-			array( '%s','%s','%d','%s','%s','%s','%d','%s','%s','%s','%d','%s','%s','%s' )
+			array( 'voucher_code'=>$code,'code_digest'=>hash('sha256',$code),'sequence_no'=>$sequence,'student_full_name'=>$name,'admission_number'=>$admission,'class_grade'=>$class,'amount_paid_kobo'=>$amount,'remaining_kobo'=>$amount,'payment_method'=>$method,'teller_ref_no'=>sanitize_text_field(isset($j['teller_ref_no'])?$j['teller_ref_no']:''),'status'=>'ISSUED','issued_by'=>get_current_user_id(),'issued_at'=>$now,'issued_ip'=>School_POS_Security::ip(),'issued_user_agent'=>School_POS_Security::user_agent() ),
+			array( '%s','%s','%d','%s','%s','%s','%d','%d','%s','%s','%s','%d','%s','%s','%s' )
 		);
 		if ( false === $ok ) { $wpdb->query( 'ROLLBACK' ); return new WP_Error( 'voucher_failed', 'Voucher could not be issued.', array( 'status' => 409 ) ); }
 		$id = (int) $wpdb->insert_id;
@@ -275,7 +345,7 @@ final class School_POS_API {
 			set_transient( $key, $count + 1, 60 );
 		}
 		global $wpdb;
-		$row = $wpdb->get_row( $wpdb->prepare( "SELECT voucher_id,voucher_code,student_full_name,admission_number,class_grade,amount_paid_kobo,status FROM {$wpdb->prefix}school_pos_vouchers WHERE voucher_code=%s LIMIT 1", $code ), ARRAY_A );
+		$row = $wpdb->get_row( $wpdb->prepare( "SELECT voucher_id,voucher_code,student_full_name,admission_number,class_grade,amount_paid_kobo,remaining_kobo,status FROM {$wpdb->prefix}school_pos_vouchers WHERE voucher_code=%s LIMIT 1", $code ), ARRAY_A );
 		if ( ! $row ) {
 			School_POS_Security::audit( 'voucher_lookup_failed', 'voucher', 0, $code, array() );
 			return new WP_Error( 'invalid_voucher', 'Voucher code is invalid or unavailable.', array( 'status' => 404 ) );
@@ -319,8 +389,9 @@ final class School_POS_API {
 			$subtotal += $line_total;
 			$prepared[] = array( 'product'=>$product,'line'=>$line,'unit_price'=>$unit_price,'base_units'=>$base_units,'line_total'=>$line_total,'balance'=>$balance );
 		}
-		if ( (int) $voucher->amount_paid_kobo < $subtotal ) {
-			$shortfall = $subtotal - (int) $voucher->amount_paid_kobo;
+		$voucher_remaining = isset( $voucher->remaining_kobo ) ? (int) $voucher->remaining_kobo : (int) $voucher->amount_paid_kobo;
+		if ( $voucher_remaining < $subtotal ) {
+			$shortfall = $subtotal - $voucher_remaining;
 			$wpdb->query( 'ROLLBACK' );
 			return new WP_Error( 'voucher_shortfall', 'Voucher is short by ' . School_POS_Core::naira( $shortfall ) . '.', array( 'status' => 409 ) );
 		}
@@ -343,7 +414,26 @@ final class School_POS_API {
 				array( '%s','%d','%s','%d','%d','%d','%d','%s','%s','%s','%s','%s' ) );
 			if ( false === $ledger ) { $wpdb->query('ROLLBACK'); return new WP_Error('ledger_failed','Ledger could not be written.',array('status'=>409)); }
 		}
-		$redeemed = $wpdb->update( $vtable, array( 'status'=>'REDEEMED','redeemed_by'=>get_current_user_id(),'redeemed_sale_id'=>$sale_id,'redeemed_at'=>$now,'redeemed_ip'=>School_POS_Security::ip(),'redeemed_user_agent'=>School_POS_Security::user_agent() ), array( 'voucher_id'=>$voucher->voucher_id,'status'=>'ISSUED' ), array('%s','%d','%d','%s','%s','%s'), array('%d','%s') );
+		$new_remaining = $voucher_remaining - $subtotal;
+		$voucher_status = $new_remaining > 0 ? 'ISSUED' : 'REDEEMED';
+		$voucher_update = array(
+			'remaining_kobo' => $new_remaining,
+			'status' => $voucher_status,
+		);
+		$voucher_formats = array( '%d', '%s' );
+		$voucher_update['redeemed_ip'] = School_POS_Security::ip();
+		$voucher_update['redeemed_user_agent'] = School_POS_Security::user_agent();
+		$voucher_formats[] = '%s';
+		$voucher_formats[] = '%s';
+		if ( $new_remaining === 0 ) {
+			$voucher_update['redeemed_by'] = get_current_user_id();
+			$voucher_update['redeemed_sale_id'] = $sale_id;
+			$voucher_update['redeemed_at'] = $now;
+			$voucher_formats[] = '%d';
+			$voucher_formats[] = '%d';
+			$voucher_formats[] = '%s';
+		}
+		$redeemed = $wpdb->update( $vtable, $voucher_update, array( 'voucher_id'=>$voucher->voucher_id,'status'=>'ISSUED' ), $voucher_formats, array('%d','%s') );
 		if ( 1 !== $redeemed ) { $wpdb->query('ROLLBACK'); return new WP_Error('redeem_failed','Voucher could not be redeemed.',array('status'=>409)); }
 		$wpdb->query('COMMIT');
 		School_POS_Security::audit( 'pos_sale_completed','sale',$sale_id,$receipt,array('voucher_code'=>$code,'total_kobo'=>$subtotal) );
@@ -371,7 +461,7 @@ final class School_POS_API {
 		$role=School_POS_Roles::user_role();
 		$location='store';
 		if(in_array($role,array('warehouse_manager','administrator'),true))$location='warehouse';
-		if(in_array($role,array('store_seller','administrator'),true))$location='store';
+		if(in_array($role,array('store_seller'),true))$location='store';
 		$sql_location=$location==='store'?'STOREFRONT':'WAREHOUSE';
 		$rows=$wpdb->get_results($wpdb->prepare("SELECT b.*,p.name,p.bulk_unit_label,p.base_unit_label,p.units_per_pack,p.pack_price_kobo,p.piece_price_kobo,p.low_stock_threshold_base_units FROM {$p}stock_balances b JOIN {$p}products p ON p.product_id=b.product_id WHERE b.location=%s ORDER BY p.name",$sql_location),ARRAY_A);
 		return rest_ensure_response($rows);

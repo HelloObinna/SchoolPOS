@@ -43,12 +43,13 @@
 		try {
 			var data = await api('dashboard');
 			var counts = data.counts;
+			var sales = data.sales;
 			var stats = [
-				['Pending intakes', counts.pending_intakes],
-				['Pending transfers', counts.pending_transfers],
-				['Discrepancies', counts.discrepancies],
-				['Issued vouchers', counts.issued_vouchers],
-				['Sales today', counts.sales_today]
+				['Sales today', naira(sales.today_kobo)],
+				['Sales — 7 days', naira(sales.seven_days_kobo)],
+				['Sales — 30 days', naira(sales.thirty_days_kobo)],
+				['Warehouse stock', (data.stock ? data.stock.warehouse_base_units : 0) + ' units'],
+				['Storefront stock', (data.stock ? data.stock.storefront_base_units : 0) + ' units']
 			];
 			document.getElementById('pos-dashboard').innerHTML = stats.map(function (item) {
 				return '<article class="pos-stat"><span>' + escapeHtml(item[0]) + '</span><strong>' + escapeHtml(item[1]) + '</strong></article>';
@@ -113,11 +114,16 @@
 
 	async function renderWarehouse() {
 		var view = document.getElementById('pos-view');
-		view.innerHTML = '<div class="pos-layout"><section class="pos-card"><h2>Incoming handovers</h2><div id="warehouse-intakes" class="pos-table-wrap">Loading...</div></section><aside class="pos-card"><h2>Dispatch to store</h2><form id="dispatch-form"><div class="pos-field"><label>Product</label><select name="product_id" required></select></div><div class="pos-field"><label>Base units to transfer</label><input name="quantity_base_units" type="number" min="1" required></div><button class="pos-button" type="submit">Create store transfer</button></form><hr><h3>Store transfer records</h3><div id="store-transfers" class="pos-table-wrap"></div></aside></div>';
+		view.innerHTML = '<div class="pos-layout"><section class="pos-card"><div class="pos-section-heading"><div><span class="pos-eyebrow">Warehouse inventory</span><h2>Incoming handovers</h2></div></div><div class="pos-field"><label for="warehouse-search">Search all warehouse products</label><input id="warehouse-search" type="search" placeholder="Type a product name or reference"></div><div id="warehouse-intakes" class="pos-table-wrap">Loading...</div><hr><h3>Current warehouse stock</h3><div id="warehouse-stock" class="pos-table-wrap">Loading...</div></section><aside class="pos-card"><h2>Dispatch to store</h2><form id="dispatch-form"><div class="pos-field"><label>Search product</label><input id="warehouse-product-search" list="warehouse-product-list" placeholder="Type product name" autocomplete="off"><datalist id="warehouse-product-list"></datalist><input type="hidden" name="product_id" required></div><div class="pos-field"><label>Base units to transfer</label><input name="quantity_base_units" type="number" min="1" required></div><button class="pos-button" type="submit">Create store transfer</button></form><hr><h3>Store transfer records</h3><div id="store-transfers" class="pos-table-wrap"></div></aside></div>';
 		try {
 			var products = await api('products');
-			var select = document.querySelector('#dispatch-form select');
-			select.innerHTML = '<option value="">Select product</option>' + products.map(function (p) { return '<option value="' + p.product_id + '">' + escapeHtml(p.name) + '</option>'; }).join('');
+			var datalist = document.getElementById('warehouse-product-list');
+			datalist.innerHTML = products.map(function (p) { return '<option value="' + escapeHtml(p.name) + '" data-product-id="' + p.product_id + '"></option>'; }).join('');
+			var searchInput = document.getElementById('warehouse-product-search');
+			searchInput.addEventListener('change', function () {
+				var match = products.find(function (p) { return p.name === searchInput.value; });
+				document.querySelector('#dispatch-form input[name="product_id"]').value = match ? match.product_id : '';
+			});
 			document.getElementById('dispatch-form').addEventListener('submit', async function (event) {
 				event.preventDefault();
 				var data = Object.fromEntries(new FormData(event.currentTarget));
@@ -130,6 +136,21 @@
 				var actions = row.status === 'PENDING_WAREHOUSE_HANDOVER' ? '<button class="pos-button pos-button-small" data-accept-intake="' + row.intake_id + '">Accept</button> <button class="pos-button pos-button-small pos-button-danger" data-discrepancy="' + row.intake_id + '">Flag</button>' : '';
 				return '<tr><td>' + escapeHtml(row.intake_code) + '</td><td>' + escapeHtml(row.product_name) + '</td><td>' + row.quantity_base_units + '</td><td>' + status(row.status) + '</td><td>' + actions + '</td></tr>';
 			}).join('') + '</tbody></table>' : '<div class="pos-empty">No incoming records</div>';
+			var stock = await api('balances');
+			var renderStock = function (query) {
+				var filtered = stock.filter(function (row) {
+					return String(row.name).toLowerCase().indexOf(String(query).toLowerCase()) !== -1;
+				});
+				document.getElementById('warehouse-stock').innerHTML = filtered.length ? '<table class="pos-table"><thead><tr><th>Product</th><th>Bulk</th><th>Total pieces</th></tr></thead><tbody>' + filtered.map(function (row) {
+					var packs = Math.floor(row.quantity_base_units / row.units_per_pack);
+					var pieces = row.quantity_base_units % row.units_per_pack;
+					return '<tr><td><strong>' + escapeHtml(row.name) + '</strong></td><td>' + packs + ' ' + escapeHtml(row.bulk_unit_label) + '</td><td>' + row.quantity_base_units + ' ' + escapeHtml(row.base_unit_label) + ' (' + pieces + ' loose)</td></tr>';
+				}).join('') + '</tbody></table>' : '<div class="pos-empty">No warehouse products match</div>';
+			};
+			renderStock('');
+			document.getElementById('warehouse-search').addEventListener('input', function (event) {
+				renderStock(event.currentTarget.value);
+			});
 			document.querySelectorAll('[data-accept-intake]').forEach(function (button) {
 				button.addEventListener('click', async function () {
 					try { await api('intakes/' + button.dataset.acceptIntake + '/accept', { method: 'POST' }); notice('Warehouse handover accepted'); renderWarehouse(); } catch (error) { notice(error.message, true); }
@@ -172,18 +193,23 @@
 
 	async function renderPos() {
 		cart = [];
-		document.getElementById('pos-view').innerHTML = '<div class="pos-layout"><aside class="pos-card"><h2>Voucher remittance</h2><form id="lookup-form"><div class="pos-field"><label>Voucher code</label><input name="code" autocomplete="off" required></div><button class="pos-button" type="submit">Verify voucher</button></form><div id="voucher-result"></div><hr><h3>Add sale item</h3><form id="cart-form"><div class="pos-field"><label>Product</label><select name="product_id" required></select></div><div class="pos-field-row"><div class="pos-field"><label>Unit type</label><select name="unit_type"><option value="PIECE">Piece</option><option value="PACK">Pack/Box</option></select></div><div class="pos-field"><label>Quantity</label><input name="quantity" type="number" min="1" value="1" required></div></div><button class="pos-button pos-button-secondary" type="submit">Add to cart</button></form></aside><section class="pos-card"><h2>POS cart</h2><div id="cart-lines" class="pos-cart"><div class="pos-empty">Cart is empty</div></div><div class="pos-cart-total"><span>Grand Total</span><span id="cart-total">₦0.00</span></div><button id="checkout-button" class="pos-button" type="button" disabled>Complete &amp; print</button></section></div>';
+		document.getElementById('pos-view').innerHTML = '<div class="pos-layout"><aside class="pos-card"><h2>Voucher remittance</h2><form id="lookup-form"><div class="pos-field"><label>Voucher code</label><input name="code" autocomplete="off" required></div><button class="pos-button" type="submit">Verify voucher</button></form><div id="voucher-result"></div><hr><h3>Add sale item</h3><form id="cart-form"><div class="pos-field"><label>Search product</label><input id="cart-product-search" list="cart-product-list" placeholder="Start typing a product name" autocomplete="off" required><datalist id="cart-product-list"></datalist><input type="hidden" name="product_id" required></div><div class="pos-field-row"><div class="pos-field"><label>Unit type</label><select name="unit_type"><option value="PIECE">Piece</option><option value="PACK">Pack/Box</option></select></div><div class="pos-field"><label>Quantity</label><input name="quantity" type="number" min="1" value="1" required></div></div><button class="pos-button pos-button-secondary" type="submit">Add to cart</button></form></aside><section class="pos-card"><h2>POS cart</h2><div id="cart-lines" class="pos-cart"><div class="pos-empty">Cart is empty</div></div><div class="pos-cart-total"><span>Grand Total</span><span id="cart-total">₦0.00</span></div><button id="checkout-button" class="pos-button" type="button" disabled>Complete &amp; print</button></section></div>';
 		try {
 			var products = await api('products');
 			window.SchoolPOS.products = products;
-			document.querySelector('#cart-form select[name="product_id"]').innerHTML = '<option value="">Select product</option>' + products.map(function (p) { return '<option value="' + p.product_id + '">' + escapeHtml(p.name) + '</option>'; }).join('');
+			document.getElementById('cart-product-list').innerHTML = products.map(function (p) { return '<option value="' + escapeHtml(p.name) + '" data-product-id="' + p.product_id + '"></option>'; }).join('');
+			document.getElementById('cart-product-search').addEventListener('change', function (event) {
+				var match = products.find(function (p) { return p.name === event.currentTarget.value; });
+				document.querySelector('#cart-form input[name="product_id"]').value = match ? match.product_id : '';
+			});
 			document.getElementById('lookup-form').addEventListener('submit', async function (event) {
 				event.preventDefault();
 				var code = new FormData(event.currentTarget).get('code');
 				try {
 					var voucher = await api('vouchers/lookup?code=' + encodeURIComponent(code));
 					window.SchoolPOS.verifiedVoucher = voucher;
-					document.getElementById('voucher-result').innerHTML = '<div class="pos-voucher-result"><strong>' + escapeHtml(voucher.status) + '</strong><div>' + escapeHtml(voucher.student_full_name) + '</div><div>' + escapeHtml(voucher.admission_number) + ' · ' + escapeHtml(voucher.class_grade) + '</div><div>' + naira(voucher.amount_paid_kobo) + '</div></div>';
+						var remaining = typeof voucher.remaining_kobo !== 'undefined' ? Number(voucher.remaining_kobo) : (voucher.status === 'REDEEMED' ? 0 : Number(voucher.amount_paid_kobo));
+						document.getElementById('voucher-result').innerHTML = '<div class="pos-voucher-result"><strong>' + escapeHtml(voucher.status) + '</strong><div>' + escapeHtml(voucher.student_full_name) + '</div><div>' + escapeHtml(voucher.admission_number) + ' · ' + escapeHtml(voucher.class_grade) + '</div><div>Original: ' + naira(voucher.amount_paid_kobo) + '</div><div><strong>Remaining: ' + naira(remaining) + '</strong></div></div>';
 				} catch (error) { window.SchoolPOS.verifiedVoucher = null; notice(error.message, true); }
 			});
 			document.getElementById('cart-form').addEventListener('submit', function (event) {
@@ -202,7 +228,8 @@
 				var voucher = window.SchoolPOS.verifiedVoucher;
 				var total = cart.reduce(function (sum, item) { return sum + item.quantity * item.unit_price; }, 0);
 				if (cart.length === 0) { notice('Cart is empty', true); return; }
-				if (Number(voucher.amount_paid_kobo) < total) { notice('Voucher shortfall: ' + naira(total - Number(voucher.amount_paid_kobo)), true); return; }
+				var voucherRemaining = typeof voucher.remaining_kobo !== 'undefined' ? Number(voucher.remaining_kobo) : (voucher.status === 'REDEEMED' ? 0 : Number(voucher.amount_paid_kobo));
+				if (voucherRemaining < total) { notice('Voucher shortfall: ' + naira(total - voucherRemaining), true); return; }
 				try {
 					var sale = await api('sales', { method: 'POST', body: { voucher_code: voucher.voucher_code, lines: cart.map(function (item) { return { product_id: item.product_id, quantity: item.quantity, unit_type: item.unit_type }; }) } });
 					notice('Sale completed: ' + sale.receipt_no);
@@ -279,17 +306,59 @@
 		} catch (error) { notice(error.message, true); }
 	}
 
+	async function renderCatalog() {
+		var view = document.getElementById('pos-view');
+		view.innerHTML = '<section class="pos-card"><div class="pos-section-heading"><div><span class="pos-eyebrow">Master inventory</span><h2>Product catalog</h2></div><input id="catalog-search" type="search" placeholder="Search products"></div><div id="catalog-list" class="pos-table-wrap">Loading...</div></section>';
+		try {
+			var products = await api('products');
+			var render = function (query) {
+				var filtered = products.filter(function (p) { return (p.name + ' ' + p.sku + ' ' + p.category).toLowerCase().indexOf(query.toLowerCase()) !== -1; });
+				view.querySelector('#catalog-list').innerHTML = filtered.length ? '<table class="pos-table"><thead><tr><th>Product</th><th>SKU</th><th>Pack</th><th>Piece</th><th>Stock threshold</th><th></th></tr></thead><tbody>' + filtered.map(function (p) {
+					var editAction = role === 'administrator' ? '<button class="pos-button pos-button-small" type="button" data-edit-product="' + p.product_id + '">Edit prices</button>' : '<span class="pos-status pos-status-accepted">View only</span>';
+					return '<tr><td><strong>' + escapeHtml(p.name) + '</strong><br><small>' + escapeHtml(p.category) + '</small></td><td>' + escapeHtml(p.sku) + '</td><td>' + naira(p.pack_price_kobo) + '</td><td>' + naira(p.piece_price_kobo) + '</td><td>' + p.low_stock_threshold_base_units + '</td><td>' + editAction + '</td></tr>';
+				}).join('') + '</tbody></table>' : '<div class="pos-empty">No catalog products match</div>';
+				view.querySelectorAll('[data-edit-product]').forEach(function (button) {
+					button.addEventListener('click', async function () {
+						var product = products.find(function (p) { return String(p.product_id) === String(button.dataset.editProduct); });
+						var pack = prompt('Pack/Box price in Naira', (Number(product.pack_price_kobo || 0) / 100).toFixed(2));
+						if (pack === null) return;
+						var piece = prompt('Piece price in Naira', (Number(product.piece_price_kobo || 0) / 100).toFixed(2));
+						if (piece === null) return;
+						try {
+							await api('products/' + product.product_id, { method: 'PATCH', body: { pack_price_naira: Number(pack), piece_price_naira: Number(piece) } });
+							notice('Catalog prices updated for ' + product.name);
+							renderCatalog();
+						} catch (error) { notice(error.message, true); }
+					});
+				});
+			};
+			render('');
+			view.querySelector('#catalog-search').addEventListener('input', function (event) { render(event.currentTarget.value); });
+		} catch (error) { notice(error.message, true); }
+	}
+
 	async function renderOverview() {
 		var view = document.getElementById('pos-view');
 		try {
 			var balances = await api('balances');
-			var html = '<div class="pos-layout"><section class="pos-card"><h2>Stock overview</h2><div class="pos-table-wrap">' +
+			var dashboard = await api('dashboard');
+			var html = '<div class="pos-layout pos-layout-overview"><section class="pos-card"><div class="pos-section-heading"><div><span class="pos-eyebrow">Inventory overview</span><h2>Stock on ground</h2></div></div><div class="pos-overview-totals"><article><span>Warehouse units</span><strong>' + dashboard.stock.warehouse_base_units + '</strong></article><article><span>Storefront units</span><strong>' + dashboard.stock.storefront_base_units + '</strong></article></div><div class="pos-table-wrap">' +
 				(balances.length ? '<table class="pos-table"><thead><tr><th>Product</th><th>Bulk</th><th>Pieces</th><th>Status</th></tr></thead><tbody>' + balances.map(function (row) {
 					var packs = Math.floor(row.quantity_base_units / row.units_per_pack);
 					var pieces = row.quantity_base_units % row.units_per_pack;
 					return '<tr><td>' + escapeHtml(row.name) + '</td><td>' + packs + ' ' + escapeHtml(row.bulk_unit_label) + '</td><td>' + row.quantity_base_units + ' ' + escapeHtml(row.base_unit_label) + '</td><td>' + (row.quantity_base_units <= row.low_stock_threshold_base_units && row.low_stock_threshold_base_units > 0 ? '<span class="pos-status pos-status-discrepancy">LOW</span>' : '<span class="pos-status pos-status-accepted">OK</span>') + '</td></tr>';
 				}).join('') + '</tbody></table>' : '<div class="pos-empty">No stock records</div>') + '</div></section><aside class="pos-card"><h2>Workspace notice</h2><p>Stock changes, voucher remittance, and custody actions are recorded with IP and user metadata.</p><a class="pos-button pos-button-secondary" href="' + window.location.pathname + '">Reload workspace</a></aside></div>';
+			html += '<section class="pos-card pos-sales-period"><h2>Sales period report</h2><div class="pos-field-row"><div class="pos-field"><label for="sales-from">From</label><input id="sales-from" type="date"></div><div class="pos-field"><label for="sales-to">To</label><input id="sales-to" type="date"></div></div><button class="pos-button" type="button" id="sales-period-button">Get sales</button><div id="sales-period-result" class="pos-period-result"></div></section>';
 			view.innerHTML = html;
+			document.getElementById('sales-period-button').addEventListener('click', async function () {
+				var from = document.getElementById('sales-from').value;
+				var to = document.getElementById('sales-to').value;
+				if (!from || !to) { notice('Choose both dates', true); return; }
+				try {
+					var report = await api('dashboard?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+					document.getElementById('sales-period-result').innerHTML = '<span>Sales for ' + escapeHtml(from) + ' – ' + escapeHtml(to) + '</span><strong>' + naira(report.sales.custom_kobo) + '</strong>';
+				} catch (error) { notice(error.message, true); }
+			});
 		} catch (error) { notice(error.message, true); }
 	}
 
@@ -301,6 +370,7 @@
 		if (name === 'pos') return renderPos();
 		if (name === 'receiving') return renderReceiving();
 		if (name === 'audit') return renderAudit();
+		if (name === 'catalog') return renderCatalog();
 		return renderOverview();
 	}
 

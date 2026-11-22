@@ -106,6 +106,7 @@ final class School_POS_Installer {
 			 admission_number varchar(100) NOT NULL,
 			 class_grade varchar(100) NOT NULL,
 			 amount_paid_kobo bigint(20) unsigned NOT NULL,
+			 remaining_kobo bigint(20) unsigned NOT NULL,
 			 payment_method varchar(30) NOT NULL,
 			 teller_ref_no varchar(100) NULL,
 			 status varchar(20) NOT NULL,
@@ -183,6 +184,13 @@ final class School_POS_Installer {
 		}
 		add_option( 'school_pos_voucher_sequence', '0', '', 'no' );
 		update_option( 'school_pos_schema_version', SCHOOL_POS_VERSION, false );
+		$voucher_table = $wpdb->prefix . 'school_pos_vouchers';
+		$columns = $wpdb->get_col( "SHOW COLUMNS FROM {$voucher_table}", 0 );
+		if ( $columns && ! in_array( 'remaining_kobo', $columns, true ) ) {
+			$wpdb->query( "ALTER TABLE {$voucher_table} ADD COLUMN remaining_kobo bigint(20) unsigned NOT NULL DEFAULT 0 AFTER amount_paid_kobo" );
+			$wpdb->query( "UPDATE {$voucher_table} SET remaining_kobo=amount_paid_kobo WHERE remaining_kobo=0" );
+			$wpdb->query( "UPDATE {$voucher_table} SET remaining_kobo=0 WHERE status='REDEEMED'" );
+		}
 		School_POS_Roles::register();
 		flush_rewrite_rules();
 	}
