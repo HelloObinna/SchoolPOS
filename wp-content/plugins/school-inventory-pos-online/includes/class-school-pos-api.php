@@ -32,7 +32,7 @@ final class School_POS_API {
 	public static function cap_log_intake( $request ) { return self::signed_in() && current_user_can( 'log_stock_intake'); }
 	public static function cap_receive_warehouse( $request ) { return self::signed_in() && current_user_can( 'receive_warehouse_handover'); }
 	public static function cap_dispatch( $request ) { return self::signed_in() && current_user_can( 'initiate_store_handover'); }
-	public static function cap_receive_store( $request ) { return self::signed_in() && current_user_can( 'receive_store_handover'); }
+	public static function cap_receive_store( $request ) { return self::signed_in() && ( is_super_admin() || current_user_can( 'receive_store_handover') ); }
 	public static function cap_record_payment( $request ) { return self::signed_in() && current_user_can( 'record_bursar_payment'); }
 	public static function cap_redeem( $request ) { return self::signed_in() && current_user_can( 'remit_bursar_voucher'); }
 	public static function cap_checkout( $request ) { return self::signed_in() && current_user_can( 'operate_pos_checkout') && current_user_can( 'remit_bursar_voucher'); }
@@ -78,8 +78,12 @@ final class School_POS_API {
 		$units = max( 1, absint( isset( $json['units_per_pack'] ) ? $json['units_per_pack'] : 1 ) );
 		$now = current_time( 'mysql', true );
 		$sku = strtoupper( sanitize_title( isset( $json['sku'] ) ? $json['sku'] : $name ) );
+		$pack_naira = isset( $json['pack_price_naira'] ) ? (float) $json['pack_price_naira'] : 0;
+		$piece_naira = isset( $json['piece_price_naira'] ) ? (float) $json['piece_price_naira'] : 0;
+		$pack_kobo = isset( $json['pack_price_kobo'] ) ? absint( $json['pack_price_kobo'] ) : (int) round( $pack_naira * 100 );
+		$piece_kobo = isset( $json['piece_price_kobo'] ) ? absint( $json['piece_price_kobo'] ) : (int) round( $piece_naira * 100 );
 		$ok = $wpdb->insert( $wpdb->prefix . 'school_pos_products',
-			array( 'sku' => $sku, 'name' => $name, 'category' => sanitize_key( isset( $json['category'] ) ? $json['category'] : 'general' ), 'bulk_unit_label' => sanitize_text_field( isset( $json['bulk_unit_label'] ) ? $json['bulk_unit_label'] : 'Pack' ), 'base_unit_label' => sanitize_text_field( isset( $json['base_unit_label'] ) ? $json['base_unit_label'] : 'Piece' ), 'units_per_pack' => $units, 'pack_price_kobo' => absint( isset( $json['pack_price_kobo'] ) ? $json['pack_price_kobo'] : 0 ), 'piece_price_kobo' => absint( isset( $json['piece_price_kobo'] ) ? $json['piece_price_kobo'] : 0 ), 'low_stock_threshold_base_units' => absint( isset( $json['low_stock_threshold'] ) ? $json['low_stock_threshold'] : 0 ), 'is_active' => 1, 'created_by' => get_current_user_id(), 'updated_by' => get_current_user_id(), 'created_at' => $now, 'updated_at' => $now ),
+			array( 'sku' => $sku, 'name' => $name, 'category' => sanitize_key( isset( $json['category'] ) ? $json['category'] : 'general' ), 'bulk_unit_label' => sanitize_text_field( isset( $json['bulk_unit_label'] ) ? $json['bulk_unit_label'] : 'Pack' ), 'base_unit_label' => sanitize_text_field( isset( $json['base_unit_label'] ) ? $json['base_unit_label'] : 'Piece' ), 'units_per_pack' => $units, 'pack_price_kobo' => $pack_kobo, 'piece_price_kobo' => $piece_kobo, 'low_stock_threshold_base_units' => absint( isset( $json['low_stock_threshold'] ) ? $json['low_stock_threshold'] : 0 ), 'is_active' => 1, 'created_by' => get_current_user_id(), 'updated_by' => get_current_user_id(), 'created_at' => $now, 'updated_at' => $now ),
 			array( '%s','%s','%s','%s','%s','%d','%d','%d','%d','%d','%d','%d','%s','%s' ) );
 		if ( false === $ok ) return new WP_Error( 'product_failed', 'Product could not be created.', array( 'status' => 409 ) );
 		$id = (int) $wpdb->insert_id;
@@ -100,8 +104,10 @@ final class School_POS_API {
 		$base = $quantity * (int) $product->units_per_pack;
 		$code = School_POS_Core::reference( 'INT' );
 		$now = current_time( 'mysql', true );
+		$unit_cost_naira = isset( $j['unit_cost_naira'] ) ? (float) $j['unit_cost_naira'] : 0;
+		$unit_cost_kobo = isset( $j['unit_cost_kobo'] ) ? absint( $j['unit_cost_kobo'] ) : (int) round( $unit_cost_naira * 100 );
 		$ok = $wpdb->insert( $wpdb->prefix . 'school_pos_intakes',
-			array( 'intake_code' => $code, 'product_id' => $product_id, 'supplier_name' => sanitize_text_field( isset( $j['supplier_name'] ) ? $j['supplier_name'] : '' ), 'waybill_ref' => sanitize_text_field( isset( $j['waybill_ref'] ) ? $j['waybill_ref'] : '' ), 'units_per_pack_snapshot' => (int) $product->units_per_pack, 'quantity_packs' => $quantity, 'quantity_base_units' => $base, 'unit_cost_kobo' => absint( isset( $j['unit_cost_kobo'] ) ? $j['unit_cost_kobo'] : 0 ), 'status' => 'PENDING_WAREHOUSE_HANDOVER', 'submitted_by' => get_current_user_id(), 'submitted_at' => $now, 'created_at' => $now, 'updated_at' => $now ),
+			array( 'intake_code' => $code, 'product_id' => $product_id, 'supplier_name' => sanitize_text_field( isset( $j['supplier_name'] ) ? $j['supplier_name'] : '' ), 'waybill_ref' => sanitize_text_field( isset( $j['waybill_ref'] ) ? $j['waybill_ref'] : '' ), 'units_per_pack_snapshot' => (int) $product->units_per_pack, 'quantity_packs' => $quantity, 'quantity_base_units' => $base, 'unit_cost_kobo' => $unit_cost_kobo, 'status' => 'PENDING_WAREHOUSE_HANDOVER', 'submitted_by' => get_current_user_id(), 'submitted_at' => $now, 'created_at' => $now, 'updated_at' => $now ),
 			array( '%s','%d','%s','%s','%d','%d','%d','%d','%s','%d','%s','%s','%s' ) );
 		if ( false === $ok ) return new WP_Error( 'intake_failed', 'Stock intake could not be saved.', array( 'status' => 409 ) );
 		$id = (int) $wpdb->insert_id;
@@ -218,7 +224,8 @@ final class School_POS_API {
 	public static function issue_voucher( WP_REST_Request $request ) {
 		global $wpdb;
 		$j = $request->get_json_params();
-		$amount = absint( isset( $j['amount_paid_kobo'] ) ? $j['amount_paid_kobo'] : 0 );
+		$amount_naira = isset( $j['amount_paid_naira'] ) ? (float) $j['amount_paid_naira'] : 0;
+		$amount = isset( $j['amount_paid_kobo'] ) ? absint( $j['amount_paid_kobo'] ) : (int) round( $amount_naira * 100 );
 		$name = sanitize_text_field( isset( $j['student_full_name'] ) ? $j['student_full_name'] : '' );
 		$admission = sanitize_text_field( isset( $j['admission_number'] ) ? $j['admission_number'] : '' );
 		$class = sanitize_text_field( isset( $j['class_grade'] ) ? $j['class_grade'] : '' );

@@ -73,11 +73,11 @@
 			}).join('');
 			document.getElementById('intake-form').innerHTML =
 				'<h2>Log procurement intake</h2>' +
-				(role === 'administrator' ? '<div class="pos-admin-note">Super Admin may manage master products below. Use the product form for stock setup.</div><h3>Add master product</h3><form id="product-form"><div class="pos-field"><label>Product name</label><input name="name" required></div><div class="pos-field-row"><div class="pos-field"><label>SKU</label><input name="sku"></div><div class="pos-field"><label>Category</label><select name="category"><option value="textbooks">Textbooks</option><option value="stationeries">Stationeries</option><option value="uniforms">Uniforms</option><option value="science_lab">Science &amp; Lab Supplies</option><option value="general">General</option></select></div></div><div class="pos-field-row"><div class="pos-field"><label>Pack/Box label</label><input name="bulk_unit_label" value="Pack"></div><div class="pos-field"><label>Base unit label</label><input name="base_unit_label" value="Piece"></div></div><div class="pos-field-row"><div class="pos-field"><label>Units per pack</label><input name="units_per_pack" type="number" min="1" value="1" required></div><div class="pos-field"><label>Low-stock threshold</label><input name="low_stock_threshold" type="number" min="0" value="0"></div></div><div class="pos-field-row"><div class="pos-field"><label>Pack price (kobo)</label><input name="pack_price_kobo" type="number" min="0"></div><div class="pos-field"><label>Piece price (kobo)</label><input name="piece_price_kobo" type="number" min="0"></div></div><button class="pos-button" type="submit">Add product</button></form><hr>' : '') +
+				(role === 'administrator' ? '<div class="pos-admin-note">Super Admin may manage master products below. Use the product form for stock setup.</div><h3>Add master product</h3><form id="product-form"><div class="pos-field"><label>Product name</label><input name="name" required></div><div class="pos-field-row"><div class="pos-field"><label>SKU</label><input name="sku"></div><div class="pos-field"><label>Category</label><select name="category"><option value="textbooks">Textbooks</option><option value="stationeries">Stationeries</option><option value="uniforms">Uniforms</option><option value="science_lab">Science &amp; Lab Supplies</option><option value="general">General</option></select></div></div><div class="pos-field-row"><div class="pos-field"><label>Pack/Box label</label><input name="bulk_unit_label" value="Pack"></div><div class="pos-field"><label>Base unit label</label><input name="base_unit_label" value="Piece"></div></div><div class="pos-field-row"><div class="pos-field"><label>Units per pack</label><input name="units_per_pack" type="number" min="1" value="1" required></div><div class="pos-field"><label>Low-stock threshold</label><input name="low_stock_threshold" type="number" min="0" value="0"></div></div><div class="pos-field-row"><div class="pos-field"><label>Pack/Box price (₦)</label><input name="pack_price_naira" type="number" min="0" step="0.01"></div><div class="pos-field"><label>Piece price (₦)</label><input name="piece_price_naira" type="number" min="0" step="0.01"></div></div><button class="pos-button" type="submit">Add product</button></form><hr>' : '') +
 				'<h3>Submit intake</h3><form id="intake-form-element">' +
 				'<div class="pos-field"><label>Product</label><select name="product_id" required><option value="">Select product</option>' + options + '</select></div>' +
 				'<div class="pos-field-row"><div class="pos-field"><label>Supplier</label><input name="supplier_name"></div><div class="pos-field"><label>Waybill reference</label><input name="waybill_ref"></div></div>' +
-				'<div class="pos-field-row"><div class="pos-field"><label>Quantity packs/boxes</label><input name="quantity_packs" type="number" min="1" value="1" required></div><div class="pos-field"><label>Unit cost (kobo)</label><input name="unit_cost_kobo" type="number" min="0"></div></div>' +
+				'<div class="pos-field-row"><div class="pos-field"><label>Quantity packs/boxes</label><input name="quantity_packs" type="number" min="1" value="1" required></div><div class="pos-field"><label>Unit cost (₦)</label><input name="unit_cost_naira" type="number" min="0" step="0.01"></div></div>' +
 				'<button class="pos-button" type="submit">Submit for warehouse</button></form>';
 
 			var productForm = document.getElementById('product-form');
@@ -85,8 +85,8 @@
 				event.preventDefault();
 				var data = Object.fromEntries(new FormData(productForm));
 				data.units_per_pack = Number(data.units_per_pack);
-				data.pack_price_kobo = Number(data.pack_price_kobo || 0);
-				data.piece_price_kobo = Number(data.piece_price_kobo || 0);
+				data.pack_price_naira = Number(data.pack_price_naira || 0);
+				data.piece_price_naira = Number(data.piece_price_naira || 0);
 				data.low_stock_threshold = Number(data.low_stock_threshold || 0);
 				try { await api('products', { method: 'POST', body: data }); notice('Master product created'); renderIntakes(); } catch (error) { notice(error.message, true); }
 			});
@@ -95,7 +95,7 @@
 				var data = Object.fromEntries(new FormData(event.currentTarget));
 				data.product_id = Number(data.product_id);
 				data.quantity_packs = Number(data.quantity_packs);
-				data.unit_cost_kobo = Number(data.unit_cost_kobo || 0);
+				data.unit_cost_naira = Number(data.unit_cost_naira || 0);
 				try { var created = await api('intakes', { method: 'POST', body: data }); notice('Intake submitted: ' + created.intake_code); renderIntakes(); } catch (error) { notice(error.message, true); }
 			});
 			await refreshIntakes();
@@ -156,11 +156,11 @@
 	}
 
 	async function renderBursar() {
-		document.getElementById('pos-view').innerHTML = '<div class="pos-layout"><aside class="pos-card"><h2>Issue bursar voucher</h2><form id="voucher-form"><div class="pos-field"><label>Student full name</label><input name="student_full_name" required></div><div class="pos-field-row"><div class="pos-field"><label>Admission number</label><input name="admission_number" required></div><div class="pos-field"><label>Class/grade</label><input name="class_grade" required></div></div><div class="pos-field-row"><div class="pos-field"><label>Amount paid (kobo)</label><input name="amount_paid_kobo" type="number" min="1" required></div><div class="pos-field"><label>Payment method</label><select name="payment_method"><option value="cash">Cash</option><option value="bank_transfer">Bank Transfer</option><option value="teller">Teller</option></select></div></div><div class="pos-field"><label>Teller/reference number</label><input name="teller_ref_no"></div><button class="pos-button" type="submit">Generate voucher</button></form></aside><section class="pos-card"><h2>Latest voucher</h2><div id="voucher-result" class="pos-empty">No voucher issued in this session</div></section></div>';
+		document.getElementById('pos-view').innerHTML = '<div class="pos-layout"><aside class="pos-card"><h2>Issue bursar voucher</h2><form id="voucher-form"><div class="pos-field"><label>Student full name</label><input name="student_full_name" required></div><div class="pos-field-row"><div class="pos-field"><label>Admission number</label><input name="admission_number" required></div><div class="pos-field"><label>Class/grade</label><input name="class_grade" required></div></div><div class="pos-field-row"><div class="pos-field"><label>Amount paid (₦)</label><input name="amount_paid_naira" type="number" min="0.01" step="0.01" required></div><div class="pos-field"><label>Payment method</label><select name="payment_method"><option value="cash">Cash</option><option value="bank_transfer">Bank Transfer</option><option value="teller">Teller</option></select></div></div><div class="pos-field"><label>Teller/reference number</label><input name="teller_ref_no"></div><button class="pos-button" type="submit">Generate voucher</button></form></aside><section class="pos-card"><h2>Latest voucher</h2><div id="voucher-result" class="pos-empty">No voucher issued in this session</div></section></div>';
 		document.getElementById('voucher-form').addEventListener('submit', async function (event) {
 			event.preventDefault();
 			var data = Object.fromEntries(new FormData(event.currentTarget));
-			data.amount_paid_kobo = Number(data.amount_paid_kobo);
+			data.amount_paid_naira = Number(data.amount_paid_naira);
 			try {
 				var voucher = await api('vouchers', { method: 'POST', body: data });
 				document.getElementById('voucher-result').innerHTML = '<div class="pos-voucher-result"><strong>' + escapeHtml(voucher.voucher_code) + '</strong><div>' + escapeHtml(voucher.student_full_name) + ' · ' + escapeHtml(voucher.admission_number) + '</div><div>' + naira(voucher.amount_paid_kobo) + '</div><a class="pos-button pos-button-small no-print" target="_blank" href="' + escapeHtml(window.location.pathname + '?school_pos_print=voucher&id=' + voucher.voucher_id) + '">Print 80mm voucher</a></div>';
@@ -228,6 +228,46 @@
 		});
 	}
 
+	async function renderReceiving() {
+		var view = document.getElementById('pos-view');
+		view.innerHTML = '<section class="pos-card"><div class="pos-section-heading"><div><span class="pos-eyebrow">Stock custody</span><h2>Receive warehouse transfers</h2></div><button class="pos-button pos-button-secondary" type="button" id="refresh-receiving">Refresh</button></div><div id="receiving-list" class="pos-table-wrap">Loading...</div></section>';
+		async function refreshReceiving() {
+			try {
+				var transfers = await api('handovers');
+				var pending = transfers.filter(function (row) { return row.status === 'PENDING'; });
+				var all = transfers;
+				view.querySelector('#receiving-list').innerHTML =
+					(pending.length ? '<div class="pos-alert pos-alert-info"><strong>' + pending.length + ' pending transfer' + (pending.length === 1 ? '' : 's') + '</strong> Confirm receipt only after checking the physical goods.</div>' : '') +
+					(all.length ? '<table class="pos-table"><thead><tr><th>Transfer</th><th>Product</th><th>Quantity</th><th>Status</th><th>Action</th></tr></thead><tbody>' + all.map(function (row) {
+						var action = row.status === 'PENDING'
+							? '<button class="pos-button pos-button-small" type="button" data-receive-transfer="' + row.handover_id + '">Receive &amp; stock</button>'
+							: '<span class="pos-status pos-status-accepted">Received</span>';
+						return '<tr><td><strong>' + escapeHtml(row.handover_code) + '</strong></td><td>' + escapeHtml(row.product_name) + '</td><td>' + row.quantity_base_units + ' base units</td><td>' + status(row.status) + '</td><td>' + action + '</td></tr>';
+					}).join('') + '</tbody></table>' : '<div class="pos-empty">No warehouse transfers</div>');
+				view.querySelectorAll('[data-receive-transfer]').forEach(function (button) {
+					button.addEventListener('click', async function () {
+						button.disabled = true;
+						button.textContent = 'Receiving...';
+						try {
+							var result = await api('handovers/' + button.dataset.receiveTransfer + '/accept', { method: 'POST' });
+							notice('Transfer received. ' + result.storefront_balance + ' base units now in storefront stock.');
+							await refreshReceiving();
+							loadDashboard();
+						} catch (error) {
+							button.disabled = false;
+							button.textContent = 'Receive & stock';
+							notice(error.message, true);
+						}
+					});
+				});
+			} catch (error) {
+				view.querySelector('#receiving-list').innerHTML = '<div class="pos-empty">' + escapeHtml(error.message) + '</div>';
+			}
+		}
+		view.querySelector('#refresh-receiving').addEventListener('click', refreshReceiving);
+		await refreshReceiving();
+	}
+
 	async function renderAudit() {
 		var view = document.getElementById('pos-view');
 		view.innerHTML = '<section class="pos-card"><h2>Immutable audit ledger</h2><div id="audit-list" class="pos-table-wrap">Loading...</div></section>';
@@ -259,6 +299,7 @@
 		if (name === 'warehouse') return renderWarehouse();
 		if (name === 'bursar') return renderBursar();
 		if (name === 'pos') return renderPos();
+		if (name === 'receiving') return renderReceiving();
 		if (name === 'audit') return renderAudit();
 		return renderOverview();
 	}

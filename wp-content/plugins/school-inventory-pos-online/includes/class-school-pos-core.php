@@ -48,6 +48,7 @@ final class School_POS_Core {
 				<?php if ( in_array( $role, array( 'administrator', 'warehouse_manager' ), true ) ) : ?><button type="button" data-view="warehouse">Warehouse</button><?php endif; ?>
 				<?php if ( in_array( $role, array( 'administrator', 'school_bursar' ), true ) ) : ?><button type="button" data-view="bursar">Bursar Desk</button><?php endif; ?>
 				<?php if ( in_array( $role, array( 'administrator', 'store_seller' ), true ) ) : ?><button type="button" data-view="pos">Store POS</button><?php endif; ?>
+				<?php if ( in_array( $role, array( 'administrator', 'store_seller' ), true ) ) : ?><button type="button" data-view="receiving">Receive Stock</button><?php endif; ?>
 				<?php if ( in_array( $role, array( 'administrator', 'school_admin' ), true ) ) : ?><button type="button" data-view="audit">Audit Ledger</button><?php endif; ?>
 			</nav>
 			<div id="pos-view" class="pos-view"></div>
