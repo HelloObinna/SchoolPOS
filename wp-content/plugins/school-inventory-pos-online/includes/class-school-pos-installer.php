@@ -2,6 +2,21 @@
 defined( 'ABSPATH' ) || exit;
 
 final class School_POS_Installer {
+	public static function maybe_upgrade() {
+		global $wpdb;
+		$table = $wpdb->prefix . 'school_pos_vouchers';
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return;
+		}
+		$columns = $wpdb->get_col( "SHOW COLUMNS FROM {$table}", 0 );
+		if ( $columns && ! in_array( 'remaining_kobo', $columns, true ) ) {
+			$wpdb->query( "ALTER TABLE {$table} ADD COLUMN remaining_kobo bigint(20) unsigned NOT NULL DEFAULT 0 AFTER amount_paid_kobo" );
+			$wpdb->query( "UPDATE {$table} SET remaining_kobo=amount_paid_kobo WHERE status!='REDEEMED' AND (remaining_kobo=0 OR remaining_kobo IS NULL)" );
+			$wpdb->query( "UPDATE {$table} SET remaining_kobo=0 WHERE status='REDEEMED'" );
+		}
+		add_option( 'school_pos_voucher_sequence', '0', '', 'no' );
+	}
+
 	public static function activate() {
 		global $wpdb;
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';

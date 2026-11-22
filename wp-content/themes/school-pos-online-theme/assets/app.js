@@ -47,10 +47,12 @@
 			var stats = [
 				['Sales today', naira(sales.today_kobo)],
 				['Sales — 7 days', naira(sales.seven_days_kobo)],
-				['Sales — 30 days', naira(sales.thirty_days_kobo)],
-				['Warehouse stock', (data.stock ? data.stock.warehouse_base_units : 0) + ' units'],
-				['Storefront stock', (data.stock ? data.stock.storefront_base_units : 0) + ' units']
+				['Sales — 30 days', naira(sales.thirty_days_kobo)]
 			];
+			if (role !== 'school_bursar' && role !== 'school_secretary') {
+				stats.push(['Warehouse stock', (data.stock ? data.stock.warehouse_base_units : 0) + ' units']);
+				stats.push(['Storefront stock', (data.stock ? data.stock.storefront_base_units : 0) + ' units']);
+			}
 			document.getElementById('pos-dashboard').innerHTML = stats.map(function (item) {
 				return '<article class="pos-stat"><span>' + escapeHtml(item[0]) + '</span><strong>' + escapeHtml(item[1]) + '</strong></article>';
 			}).join('');
@@ -74,7 +76,7 @@
 			}).join('');
 			document.getElementById('intake-form').innerHTML =
 				'<h2>Log procurement intake</h2>' +
-				(role === 'administrator' ? '<div class="pos-admin-note">Super Admin may manage master products below. Use the product form for stock setup.</div><h3>Add master product</h3><form id="product-form"><div class="pos-field"><label>Product name</label><input name="name" required></div><div class="pos-field-row"><div class="pos-field"><label>SKU</label><input name="sku"></div><div class="pos-field"><label>Category</label><select name="category"><option value="textbooks">Textbooks</option><option value="stationeries">Stationeries</option><option value="uniforms">Uniforms</option><option value="science_lab">Science &amp; Lab Supplies</option><option value="general">General</option></select></div></div><div class="pos-field-row"><div class="pos-field"><label>Pack/Box label</label><input name="bulk_unit_label" value="Pack"></div><div class="pos-field"><label>Base unit label</label><input name="base_unit_label" value="Piece"></div></div><div class="pos-field-row"><div class="pos-field"><label>Units per pack</label><input name="units_per_pack" type="number" min="1" value="1" required></div><div class="pos-field"><label>Low-stock threshold</label><input name="low_stock_threshold" type="number" min="0" value="0"></div></div><div class="pos-field-row"><div class="pos-field"><label>Pack/Box price (₦)</label><input name="pack_price_naira" type="number" min="0" step="0.01"></div><div class="pos-field"><label>Piece price (₦)</label><input name="piece_price_naira" type="number" min="0" step="0.01"></div></div><button class="pos-button" type="submit">Add product</button></form><hr>' : '') +
+				((role === 'administrator' || role === 'school_secretary') ? '<div class="pos-admin-note">' + (role === 'administrator' ? 'Super Admin may manage master products below.' : 'Enter the initial category and price for a new product; final approved prices are controlled by the School Admin.') + '</div><h3>Add master product</h3><form id="product-form"><div class="pos-field"><label>Product name</label><input name="name" required></div><div class="pos-field-row"><div class="pos-field"><label>SKU</label><input name="sku"></div><div class="pos-field"><label>Category</label><select name="category"><option value="textbooks">Textbooks</option><option value="stationeries">Stationeries</option><option value="uniforms">Uniforms</option><option value="science_lab">Science &amp; Lab Supplies</option><option value="general">General</option></select></div></div><div class="pos-field-row"><div class="pos-field"><label>Pack/Box label</label><input name="bulk_unit_label" value="Pack"></div><div class="pos-field"><label>Base unit label</label><input name="base_unit_label" value="Piece"></div></div><div class="pos-field-row"><div class="pos-field"><label>Units per pack</label><input name="units_per_pack" type="number" min="1" value="1" required></div><div class="pos-field"><label>Low-stock threshold</label><input name="low_stock_threshold" type="number" min="0" value="0"></div></div><div class="pos-field-row"><div class="pos-field"><label>Initial pack/box price (₦)</label><input name="pack_price_naira" type="number" min="0" step="0.01"></div><div class="pos-field"><label>Initial piece price (₦)</label><input name="piece_price_naira" type="number" min="0" step="0.01"></div></div><button class="pos-button" type="submit">Add product</button></form><hr>' : '') +
 				'<h3>Submit intake</h3><form id="intake-form-element">' +
 				'<div class="pos-field"><label>Product</label><select name="product_id" required><option value="">Select product</option>' + options + '</select></div>' +
 				'<div class="pos-field-row"><div class="pos-field"><label>Supplier</label><input name="supplier_name"></div><div class="pos-field"><label>Waybill reference</label><input name="waybill_ref"></div></div>' +
@@ -141,10 +143,10 @@
 				var filtered = stock.filter(function (row) {
 					return String(row.name).toLowerCase().indexOf(String(query).toLowerCase()) !== -1;
 				});
-				document.getElementById('warehouse-stock').innerHTML = filtered.length ? '<table class="pos-table"><thead><tr><th>Product</th><th>Bulk</th><th>Total pieces</th></tr></thead><tbody>' + filtered.map(function (row) {
+				document.getElementById('warehouse-stock').innerHTML = filtered.length ? '<table class="pos-table"><thead><tr><th>Product</th><th>Location</th><th>Bulk</th><th>Total pieces</th></tr></thead><tbody>' + filtered.map(function (row) {
 					var packs = Math.floor(row.quantity_base_units / row.units_per_pack);
 					var pieces = row.quantity_base_units % row.units_per_pack;
-					return '<tr><td><strong>' + escapeHtml(row.name) + '</strong></td><td>' + packs + ' ' + escapeHtml(row.bulk_unit_label) + '</td><td>' + row.quantity_base_units + ' ' + escapeHtml(row.base_unit_label) + ' (' + pieces + ' loose)</td></tr>';
+					return '<tr><td><strong>' + escapeHtml(row.name) + '</strong></td><td>' + (row.location === 'WAREHOUSE' ? 'Warehouse' : 'Storefront') + '</td><td>' + packs + ' ' + escapeHtml(row.bulk_unit_label) + '</td><td>' + row.quantity_base_units + ' ' + escapeHtml(row.base_unit_label) + ' (' + pieces + ' loose)</td></tr>';
 				}).join('') + '</tbody></table>' : '<div class="pos-empty">No warehouse products match</div>';
 			};
 			renderStock('');
@@ -314,7 +316,7 @@
 			var render = function (query) {
 				var filtered = products.filter(function (p) { return (p.name + ' ' + p.sku + ' ' + p.category).toLowerCase().indexOf(query.toLowerCase()) !== -1; });
 				view.querySelector('#catalog-list').innerHTML = filtered.length ? '<table class="pos-table"><thead><tr><th>Product</th><th>SKU</th><th>Pack</th><th>Piece</th><th>Stock threshold</th><th></th></tr></thead><tbody>' + filtered.map(function (p) {
-					var editAction = role === 'administrator' ? '<button class="pos-button pos-button-small" type="button" data-edit-product="' + p.product_id + '">Edit prices</button>' : '<span class="pos-status pos-status-accepted">View only</span>';
+					var editAction = (role === 'administrator' || role === 'school_admin') ? '<button class="pos-button pos-button-small" type="button" data-edit-product="' + p.product_id + '">Edit prices</button>' : '<span class="pos-status pos-status-accepted">View only</span>';
 					return '<tr><td><strong>' + escapeHtml(p.name) + '</strong><br><small>' + escapeHtml(p.category) + '</small></td><td>' + escapeHtml(p.sku) + '</td><td>' + naira(p.pack_price_kobo) + '</td><td>' + naira(p.piece_price_kobo) + '</td><td>' + p.low_stock_threshold_base_units + '</td><td>' + editAction + '</td></tr>';
 				}).join('') + '</tbody></table>' : '<div class="pos-empty">No catalog products match</div>';
 				view.querySelectorAll('[data-edit-product]').forEach(function (button) {
@@ -339,6 +341,10 @@
 
 	async function renderOverview() {
 		var view = document.getElementById('pos-view');
+		if (role === 'school_bursar') {
+			view.innerHTML = '<section class="pos-card"><div class="pos-section-heading"><div><span class="pos-eyebrow">Bursar overview</span><h2>Payment operations</h2></div></div><p>Issue vouchers and monitor authorized sales totals from the Sales Dashboard.</p></section>';
+			return;
+		}
 		try {
 			var balances = await api('balances');
 			var dashboard = await api('dashboard');
@@ -362,6 +368,39 @@
 		} catch (error) { notice(error.message, true); }
 	}
 
+	async function renderSales() {
+		var view = document.getElementById('pos-view');
+		view.innerHTML = '<section class="pos-card"><div class="pos-section-heading"><div><span class="pos-eyebrow">Sales intelligence</span><h2>Sales dashboard</h2></div></div><div id="sales-summary" class="pos-grid pos-grid-stats"></div><div class="pos-field-row"><div class="pos-field"><label for="sales-list-from">From</label><input id="sales-list-from" type="date"></div><div class="pos-field"><label for="sales-list-to">To</label><input id="sales-list-to" type="date"></div></div><button class="pos-button" type="button" id="sales-list-button">View sales in period</button><div id="sales-table" class="pos-table-wrap" style="margin-top:16px"></div></section>';
+		try {
+			var dashboard = await api('dashboard');
+			var sales = dashboard.sales;
+			var summary = [
+				['Today', naira(sales.today_kobo)],
+				['7 days', naira(sales.seven_days_kobo)],
+				['30 days', naira(sales.thirty_days_kobo)],
+				['Store sales', dashboard.counts.sales_today + ' today']
+			];
+			view.querySelector('#sales-summary').innerHTML = summary.map(function (item) {
+				return '<article class="pos-stat"><span>' + escapeHtml(item[0]) + '</span><strong>' + escapeHtml(item[1]) + '</strong></article>';
+			}).join('');
+			async function loadSales(from, to) {
+				var path = 'sales';
+				if (from && to) path += '?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+				var rows = await api(path);
+				view.querySelector('#sales-table').innerHTML = rows.length ? '<table class="pos-table"><thead><tr><th>Receipt</th><th>Student</th><th>Voucher</th><th>Amount</th><th>Date</th></tr></thead><tbody>' + rows.map(function (row) {
+					return '<tr><td><strong>' + escapeHtml(row.receipt_no) + '</strong></td><td>' + escapeHtml(row.student_full_name_snapshot) + '</td><td>' + escapeHtml(row.voucher_code_snapshot) + '</td><td>' + naira(row.total_kobo) + '</td><td>' + escapeHtml(row.created_at) + '</td></tr>';
+				}).join('') + '</tbody></table>' : '<div class="pos-empty">No sales records</div>';
+			}
+			await loadSales('', '');
+			view.querySelector('#sales-list-button').addEventListener('click', async function () {
+				var from = view.querySelector('#sales-list-from').value;
+				var to = view.querySelector('#sales-list-to').value;
+				if (!from || !to) { notice('Choose both dates', true); return; }
+				try { await loadSales(from, to); } catch (error) { notice(error.message, true); }
+			});
+		} catch (error) { notice(error.message, true); }
+	}
+
 	function setView(name) {
 		document.querySelectorAll('[data-view]').forEach(function (button) { button.classList.toggle('is-active', button.dataset.view === name); });
 		if (name === 'intakes') return renderIntakes();
@@ -371,6 +410,7 @@
 		if (name === 'receiving') return renderReceiving();
 		if (name === 'audit') return renderAudit();
 		if (name === 'catalog') return renderCatalog();
+		if (name === 'sales') return renderSales();
 		return renderOverview();
 	}
 

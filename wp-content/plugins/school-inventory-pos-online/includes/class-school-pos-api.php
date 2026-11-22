@@ -9,8 +9,8 @@ final class School_POS_API {
 	public static function routes() {
 		register_rest_route( 'school-pos/v1', '/dashboard', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'dashboard' ), 'permission_callback' => '__return_true' ) );
 		register_rest_route( 'school-pos/v1', '/products', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'products' ), 'permission_callback' => '__return_true' ) );
-		register_rest_route( 'school-pos/v1', '/products', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'create_product' ), 'permission_callback' => array( __CLASS__, 'admin_product' ) ) );
-		register_rest_route( 'school-pos/v1', '/products/(?P<id>\d+)', array( 'methods' => array( 'POST', 'PUT', 'PATCH' ), 'callback' => array( __CLASS__, 'update_product' ), 'permission_callback' => array( __CLASS__, 'admin_product' ) ) );
+		register_rest_route( 'school-pos/v1', '/products', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'create_product' ), 'permission_callback' => array( __CLASS__, 'create_product_permission' ) ) );
+		register_rest_route( 'school-pos/v1', '/products/(?P<id>\d+)', array( 'methods' => array( 'POST', 'PUT', 'PATCH' ), 'callback' => array( __CLASS__, 'update_product' ), 'permission_callback' => array( __CLASS__, 'adjust_product_permission' ) ) );
 		register_rest_route( 'school-pos/v1', '/intakes', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'create_intake' ), 'permission_callback' => array( __CLASS__, 'cap_log_intake' ) ) );
 		register_rest_route( 'school-pos/v1', '/intakes', array( 'methods' => 'GET', 'callback' => array( __CLASS__, 'intakes' ), 'permission_callback' => '__return_true' ) );
 		register_rest_route( 'school-pos/v1', '/intakes/(?P<id>\d+)/accept', array( 'methods' => 'POST', 'callback' => array( __CLASS__, 'accept_intake' ), 'permission_callback' => array( __CLASS__, 'cap_receive_warehouse' ) ) );
@@ -29,7 +29,8 @@ final class School_POS_API {
 	private static function signed_in() {
 		return is_user_logged_in();
 	}
-	public static function admin_product( $request ) { return self::signed_in() && ( current_user_can( 'configure_school_pos' ) || current_user_can( 'manage_options' ) ); }
+	public static function create_product_permission( $request ) { return self::signed_in() && ( is_super_admin() || current_user_can( 'create_catalog_product' ) || current_user_can( 'create_stock_order' ) || current_user_can( 'configure_school_pos' ) ); }
+	public static function adjust_product_permission( $request ) { return self::signed_in() && ( is_super_admin() || current_user_can( 'adjust_product_price' ) ); }
 	public static function cap_log_intake( $request ) { return self::signed_in() && current_user_can( 'log_stock_intake'); }
 	public static function cap_receive_warehouse( $request ) { return self::signed_in() && current_user_can( 'receive_warehouse_handover'); }
 	public static function cap_dispatch( $request ) { return self::signed_in() && current_user_can( 'initiate_store_handover'); }
@@ -44,22 +45,31 @@ final class School_POS_API {
 		global $wpdb;
 		$p = $wpdb->prefix . 'school_pos_';
 		$role = School_POS_Roles::user_role();
+		$can_view_sales = is_super_admin() || in_array( $role, array( 'school_admin', 'school_bursar', 'store_seller' ), true );
+		$seller_filter = '';
+		$seller_args = array();
+		if ( 'store_seller' === $role ) {
+			$seller_filter = ' AND seller_user_id=%d';
+			$seller_args[] = get_current_user_id();
+		}
 		$today = gmdate( 'Y-m-d 00:00:00' );
 		$seven = gmdate( 'Y-m-d 00:00:00', strtotime( '-6 days', current_time( 'timestamp', true ) ) );
 		$month = gmdate( 'Y-m-d 00:00:00', strtotime( '-29 days', current_time( 'timestamp', true ) ) );
 		$custom_from = sanitize_text_field( $request->get_param( 'from' ) );
 		$custom_to = sanitize_text_field( $request->get_param( 'to' ) );
-		$sum_sales = static function ( $from, $to = '' ) use ( $wpdb, $p ) {
+		$sum_sales = static function ( $from, $to = '' ) use ( $wpdb, $p, $can_view_sales, $seller_filter, $seller_args ) {
+			if ( ! $can_view_sales ) return 0;
 			$sql = "SELECT COALESCE(SUM(total_kobo),0) FROM {$p}sales WHERE status='COMPLETED' AND created_at>=%s";
 			$args = array( $from );
 			if ( $to ) {
 				$sql .= ' AND created_at<=%s';
 				$args[] = $to;
 			}
-			if ( $to ) {
-				return (int) $wpdb->get_var( $wpdb->prepare( $sql, $from, $to ) );
+			if ( $seller_filter ) {
+				$sql .= str_replace( '%d', '%d', $seller_filter );
+				$args = array_merge( $args, $seller_args );
 			}
-			return (int) $wpdb->get_var( $wpdb->prepare( $sql, $from ) );
+			return (int) $wpdb->get_var( $wpdb->prepare( $sql, $args ) );
 		};
 		$today_sales = $sum_sales( $today );
 		$seven_sales = $sum_sales( $seven );
@@ -68,9 +78,10 @@ final class School_POS_API {
 		if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $custom_from ) && preg_match( '/^\d{4}-\d{2}-\d{2}$/', $custom_to ) ) {
 			$custom_sales = $sum_sales( $custom_from . ' 00:00:00', $custom_to . ' 23:59:59' );
 		}
-		$warehouse_pieces = (int) $wpdb->get_var( "SELECT COALESCE(SUM(quantity_base_units),0) FROM {$p}stock_balances WHERE location='WAREHOUSE'" );
-		$store_pieces = (int) $wpdb->get_var( "SELECT COALESCE(SUM(quantity_base_units),0) FROM {$p}stock_balances WHERE location='STOREFRONT'" );
-		$stock_rows = $wpdb->get_results( "SELECT p.product_id,p.name,p.bulk_unit_label,p.base_unit_label,p.units_per_pack,COALESCE(w.quantity_base_units,0) AS warehouse_units,COALESCE(s.quantity_base_units,0) AS storefront_units FROM {$p}products p LEFT JOIN {$p}stock_balances w ON w.product_id=p.product_id AND w.location='WAREHOUSE' LEFT JOIN {$p}stock_balances s ON s.product_id=p.product_id AND s.location='STOREFRONT' WHERE p.is_active=1 ORDER BY p.name", ARRAY_A );
+		$can_view_stock = is_super_admin() || in_array( $role, array( 'school_admin', 'warehouse_manager', 'store_seller' ), true );
+		$warehouse_pieces = $can_view_stock ? (int) $wpdb->get_var( "SELECT COALESCE(SUM(quantity_base_units),0) FROM {$p}stock_balances WHERE location='WAREHOUSE'" ) : 0;
+		$store_pieces = $can_view_stock ? (int) $wpdb->get_var( "SELECT COALESCE(SUM(quantity_base_units),0) FROM {$p}stock_balances WHERE location='STOREFRONT'" ) : 0;
+		$stock_rows = $can_view_stock ? $wpdb->get_results( "SELECT p.product_id,p.name,p.bulk_unit_label,p.base_unit_label,p.units_per_pack,COALESCE(w.quantity_base_units,0) AS warehouse_units,COALESCE(s.quantity_base_units,0) AS storefront_units FROM {$p}products p LEFT JOIN {$p}stock_balances w ON w.product_id=p.product_id AND w.location='WAREHOUSE' LEFT JOIN {$p}stock_balances s ON s.product_id=p.product_id AND s.location='STOREFRONT' WHERE p.is_active=1 ORDER BY p.name", ARRAY_A ) : array();
 		$data = array(
 			'role' => $role,
 			'counts' => array(
@@ -78,7 +89,10 @@ final class School_POS_API {
 				'pending_transfers' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}handovers WHERE status='PENDING'" ),
 				'discrepancies' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}intakes WHERE status='DISCREPANCY'" ),
 				'issued_vouchers' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$p}vouchers WHERE status='ISSUED'" ),
-				'sales_today' => (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$p}sales WHERE status='COMPLETED' AND created_at >= %s", gmdate( 'Y-m-d 00:00:00' ) ) ),
+				'sales_today' => $can_view_sales ? ( 'store_seller' === $role
+					? (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$p}sales WHERE status='COMPLETED' AND created_at >= %s AND seller_user_id=%d", gmdate( 'Y-m-d 00:00:00' ), get_current_user_id() ) )
+					: (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$p}sales WHERE status='COMPLETED' AND created_at >= %s", gmdate( 'Y-m-d 00:00:00' ) ) )
+				) : 0,
 			),
 			'sales' => array(
 				'today_kobo' => $today_sales,
@@ -331,7 +345,7 @@ final class School_POS_API {
 		$id = (int) $wpdb->insert_id;
 		$wpdb->query( 'COMMIT' );
 		School_POS_Security::audit( 'voucher_issued', 'voucher', $id, $code, array( 'amount_paid_kobo' => $amount, 'payment_method' => $method ) );
-		return rest_ensure_response( array( 'voucher_id'=>$id,'voucher_code'=>$code,'amount_paid_kobo'=>$amount,'status'=>'ISSUED','student_full_name'=>$name,'admission_number'=>$admission,'class_grade'=>$class ) );
+		return rest_ensure_response( array( 'voucher_id'=>$id,'voucher_code'=>$code,'amount_paid_kobo'=>$amount,'remaining_kobo'=>$amount,'status'=>'ISSUED','student_full_name'=>$name,'admission_number'=>$admission,'class_grade'=>$class ) );
 	}
 
 	public static function lookup_voucher( WP_REST_Request $request ) {
@@ -421,14 +435,14 @@ final class School_POS_API {
 			'status' => $voucher_status,
 		);
 		$voucher_formats = array( '%d', '%s' );
-		$voucher_update['redeemed_ip'] = School_POS_Security::ip();
-		$voucher_update['redeemed_user_agent'] = School_POS_Security::user_agent();
-		$voucher_formats[] = '%s';
-		$voucher_formats[] = '%s';
 		if ( $new_remaining === 0 ) {
+			$voucher_update['redeemed_ip'] = School_POS_Security::ip();
+			$voucher_update['redeemed_user_agent'] = School_POS_Security::user_agent();
 			$voucher_update['redeemed_by'] = get_current_user_id();
 			$voucher_update['redeemed_sale_id'] = $sale_id;
 			$voucher_update['redeemed_at'] = $now;
+			$voucher_formats[] = '%s';
+			$voucher_formats[] = '%s';
 			$voucher_formats[] = '%d';
 			$voucher_formats[] = '%d';
 			$voucher_formats[] = '%s';
@@ -442,10 +456,16 @@ final class School_POS_API {
 
 	public static function sales( WP_REST_Request $request ) {
 		if ( ! is_user_logged_in() ) return new WP_Error('login_required','Please sign in.',array('status'=>401));
-		if ( ! ( is_super_admin() || current_user_can('view_own_store_sales') || current_user_can('view_store_sales') || current_user_can('oversee_all_transactions') ) ) return new WP_Error('forbidden','You are not authorized to view sales.',array('status'=>403));
+		if ( ! ( is_super_admin() || current_user_can('view_sales_dashboard') || current_user_can('view_own_store_sales') || current_user_can('view_store_sales') || current_user_can('oversee_all_transactions') ) ) return new WP_Error('forbidden','You are not authorized to view sales.',array('status'=>403));
 		global $wpdb;$p=$wpdb->prefix.'school_pos_';
 		$where='WHERE 1=1';
-		if ( current_user_can('view_own_store_sales') && !current_user_can('view_store_sales') && !current_user_can('oversee_all_transactions') ) $where=$wpdb->prepare('WHERE seller_user_id=%d',get_current_user_id());
+		if ( !is_super_admin() && !current_user_can('view_store_sales') && !current_user_can('oversee_all_transactions') && !current_user_can('view_sales_dashboard') ) $where=$wpdb->prepare('WHERE seller_user_id=%d',get_current_user_id());
+		$from=sanitize_text_field($request->get_param('from'));
+		$to=sanitize_text_field($request->get_param('to'));
+		if(preg_match('/^\d{4}-\d{2}-\d{2}$/',$from)&&preg_match('/^\d{4}-\d{2}-\d{2}$/',$to)){
+			$date_where=$wpdb->prepare('created_at>=%s AND created_at<=%s',$from.' 00:00:00',$to.' 23:59:59');
+			$where= 'WHERE 1=1' === $where ? 'WHERE '.$date_where : str_replace('WHERE ','WHERE '.$date_where.' AND ', $where);
+		}
 		$rows=$wpdb->get_results("SELECT * FROM {$p}sales $where ORDER BY sale_id DESC LIMIT 100",ARRAY_A);
 		return rest_ensure_response($rows);
 	}
@@ -459,11 +479,13 @@ final class School_POS_API {
 		if ( ! is_user_logged_in() ) return new WP_Error('login_required','Please sign in.',array('status'=>401));
 		global $wpdb;$p=$wpdb->prefix.'school_pos_';
 		$role=School_POS_Roles::user_role();
-		$location='store';
-		if(in_array($role,array('warehouse_manager','administrator'),true))$location='warehouse';
-		if(in_array($role,array('store_seller'),true))$location='store';
-		$sql_location=$location==='store'?'STOREFRONT':'WAREHOUSE';
-		$rows=$wpdb->get_results($wpdb->prepare("SELECT b.*,p.name,p.bulk_unit_label,p.base_unit_label,p.units_per_pack,p.pack_price_kobo,p.piece_price_kobo,p.low_stock_threshold_base_units FROM {$p}stock_balances b JOIN {$p}products p ON p.product_id=b.product_id WHERE b.location=%s ORDER BY p.name",$sql_location),ARRAY_A);
+		if ( in_array( $role, array( 'warehouse_manager', 'school_admin', 'administrator' ), true ) ) {
+			$rows=$wpdb->get_results("SELECT b.*,p.name,p.bulk_unit_label,p.base_unit_label,p.units_per_pack,p.pack_price_kobo,p.piece_price_kobo,p.low_stock_threshold_base_units FROM {$p}stock_balances b JOIN {$p}products p ON p.product_id=b.product_id ORDER BY p.name,b.location",ARRAY_A);
+		} elseif ( 'store_seller' === $role ) {
+			$rows=$wpdb->get_results($wpdb->prepare("SELECT b.*,p.name,p.bulk_unit_label,p.base_unit_label,p.units_per_pack,p.pack_price_kobo,p.piece_price_kobo,p.low_stock_threshold_base_units FROM {$p}stock_balances b JOIN {$p}products p ON p.product_id=b.product_id WHERE b.location=%s ORDER BY p.name",'STOREFRONT'),ARRAY_A);
+		} else {
+			return new WP_Error('forbidden','You are not authorized to view stock balances.',array('status'=>403));
+		}
 		return rest_ensure_response($rows);
 	}
 }

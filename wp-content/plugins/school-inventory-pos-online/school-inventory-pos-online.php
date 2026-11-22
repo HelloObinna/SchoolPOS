@@ -28,6 +28,7 @@ register_activation_hook( __FILE__, array( 'School_POS_Installer', 'activate' ) 
 add_action(
 	'plugins_loaded',
 	static function () {
+		School_POS_Installer::maybe_upgrade();
 		School_POS_Roles::register();
 		School_POS_Security::register();
 		School_POS_API::register();

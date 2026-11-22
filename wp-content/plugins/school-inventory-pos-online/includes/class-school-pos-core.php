@@ -51,6 +51,7 @@ final class School_POS_Core {
 				<?php if ( in_array( $role, array( 'administrator', 'store_seller' ), true ) ) : ?><button type="button" data-view="receiving">Receive Stock</button><?php endif; ?>
 				<?php if ( in_array( $role, array( 'administrator', 'school_admin' ), true ) ) : ?><button type="button" data-view="audit">Audit Ledger</button><?php endif; ?>
 				<?php if ( in_array( $role, array( 'administrator', 'school_admin' ), true ) ) : ?><button type="button" data-view="catalog">Product Catalog</button><?php endif; ?>
+				<?php if ( in_array( $role, array( 'administrator', 'school_admin', 'school_bursar', 'store_seller' ), true ) ) : ?><button type="button" data-view="sales">Sales Dashboard</button><?php endif; ?>
 			</nav>
 			<div id="pos-view" class="pos-view"></div>
 		</section>
@@ -190,6 +191,8 @@ final class School_POS_Core {
 		if ( 'voucher' === $type ) {
 			echo '<div class="center strong">BURSAR PAYMENT VOUCHER</div><div class="voucher-code">' . esc_html( $data->voucher_code ) . '</div>';
 			echo '<div>Issued: ' . esc_html( $data->issued_at ) . '</div><div>Student: ' . esc_html( $data->student_full_name ) . '</div><div>Admission: ' . esc_html( $data->admission_number ) . '</div><div>Class: ' . esc_html( $data->class_grade ) . '</div><div>Method: ' . esc_html( $data->payment_method ) . '</div><hr><div class="row strong"><span>Amount</span><span>' . esc_html( self::naira( $data->amount_paid_kobo ) ) . '</span></div>';
+			$remaining = isset( $data->remaining_kobo ) ? (int) $data->remaining_kobo : ( $data->status === 'REDEEMED' ? 0 : (int) $data->amount_paid_kobo );
+			echo '<div class="row"><span>Amount used</span><span>' . esc_html( self::naira( (int) $data->amount_paid_kobo - $remaining ) ) . '</span></div><div class="row strong"><span>Remaining</span><span>' . esc_html( self::naira( $remaining ) ) . '</span></div><div>Status: ' . esc_html( $data->status ) . '</div>';
 		} else {
 			echo '<div class="center strong">STORE POS RECEIPT</div><div class="row"><span>Receipt</span><span>' . esc_html( $data->receipt_no ) . '</span></div><div>' . esc_html( $data->created_at ) . '</div><hr>';
 			echo '<div>Voucher: ' . esc_html( $data->voucher_code_snapshot ) . '</div><div>Student: ' . esc_html( $data->student_full_name_snapshot ) . '</div><div>Admission: ' . esc_html( $data->admission_number_snapshot ) . '</div><div>Class: ' . esc_html( $data->class_grade_snapshot ) . '</div><hr>';
